@@ -1,60 +1,82 @@
 import CryptoJS from "crypto-js";
 
-// این کلاس مدیریت localStorage و sessionStorage رو به همراه رمزنگاری و قابلیت انقضای داده‌ها انجام می‌ده
-// This class manages both localStorage and sessionStorage with encryption and data expiration.
+// کلاس مدیریت localStorage و sessionStorage با تنظیمات اختیاری برای رمزنگاری و انقضا
+// This class manages localStorage and sessionStorage with optional encryption and expiration settings.
 class StorageManager {
-  private encryptionKey: string;
-  private storageType: Storage; // تعیین نوع storage (localStorage یا sessionStorage)
+  private encryptionKey: string | null;
+  private storageType: Storage;
+  private useEncryption: boolean;
+  private useExpiration: boolean;
 
-  // constructor به ما اجازه می‌ده انتخاب کنیم از کدوم storage استفاده کنیم
-  // The constructor lets us choose between localStorage and sessionStorage.
-  constructor(encryptionKey: string, useSessionStorage: boolean = false) {
-    this.encryptionKey = encryptionKey;
-    this.storageType = useSessionStorage ? sessionStorage : localStorage;
+  // سازنده که اجازه می‌ده ویژگی‌ها به طور دلخواه فعال بشن، بدون اینکه هیچ کدوم پیش‌فرض true باشن
+  // Constructor that allows optional features without any default being true.
+  constructor(options: {
+    encryptionKey?: string;
+    useSessionStorage?: boolean;
+    useEncryption?: boolean;
+    useExpiration?: boolean;
+  }) {
+    this.encryptionKey = options.encryptionKey || null;
+    this.storageType = options.useSessionStorage
+      ? sessionStorage
+      : localStorage;
+    this.useEncryption = options.useEncryption ?? false; // پیش‌فرض: رمزنگاری غیرفعال
+    this.useExpiration = options.useExpiration ?? false; // پیش‌فرض: انقضا غیرفعال
   }
 
-  // ذخیره آیتم با رمزنگاری و امکان تنظیم زمان انقضا
-  // Store an item with encryption and an optional expiration time.
+  // ذخیره آیتم با رمزنگاری و انقضا به صورت اختیاری
+  // Store an item with optional encryption and expiration.
   setItem<T>(key: string, value: T, expirationInMs?: number): void {
-    const item = {
-      value: value,
-      expiration: expirationInMs ? Date.now() + expirationInMs : null,
-    };
+    let item: any = { value: value };
 
-    // رمزنگاری داده‌ها
-    // Encrypt the data.
-    const encryptedData = CryptoJS.AES.encrypt(
-      JSON.stringify(item),
-      this.encryptionKey
-    ).toString();
-    this.storageType.setItem(key, encryptedData);
+    // تنظیم انقضا در صورت فعال بودن
+    // Set expiration if enabled.
+    if (this.useExpiration && expirationInMs) {
+      item.expiration = Date.now() + expirationInMs;
+    }
+
+    let dataToStore = JSON.stringify(item);
+
+    // رمزنگاری در صورت فعال بودن
+    // Encrypt if enabled.
+    if (this.useEncryption && this.encryptionKey) {
+      dataToStore = CryptoJS.AES.encrypt(
+        dataToStore,
+        this.encryptionKey
+      ).toString();
+    }
+
+    this.storageType.setItem(key, dataToStore);
   }
 
-  // این متد آیتم رو برمی‌داره، رمزگشایی می‌کنه و اگه منقضی شده باشه پاکش می‌کنه
-  // Retrieve, decrypt the item, and remove it if expired.
+  // بازیابی آیتم و چک کردن انقضا یا رمزگشایی در صورت فعال بودن
+  // Retrieve an item and check expiration or decrypt if enabled.
   getItem<T>(key: string): T | null {
-    const encryptedData = this.storageType.getItem(key);
-    if (!encryptedData) return null;
+    const storedData = this.storageType.getItem(key);
+    if (!storedData) return null;
 
-    // رمزگشایی داده‌ها
-    // Decrypt the data.
-    const bytes = CryptoJS.AES.decrypt(encryptedData, this.encryptionKey);
-    const itemString = bytes.toString(CryptoJS.enc.Utf8);
-    const item = JSON.parse(itemString) as {
-      value: T;
-      expiration: number | null;
-    };
+    let dataString = storedData;
 
-    // چک کردن زمان انقضا
-    // Check if the item has expired.
-    if (item.expiration && Date.now() > item.expiration) {
+    // رمزگشایی در صورت فعال بودن
+    // Decrypt if enabled.
+    if (this.useEncryption && this.encryptionKey) {
+      const bytes = CryptoJS.AES.decrypt(storedData, this.encryptionKey);
+      dataString = bytes.toString(CryptoJS.enc.Utf8);
+    }
+
+    const item = JSON.parse(dataString) as { value: T; expiration?: number };
+
+    // چک کردن انقضا در صورت فعال بودن
+    // Check expiration if enabled.
+    if (this.useExpiration && item.expiration && Date.now() > item.expiration) {
       this.storageType.removeItem(key);
       return null;
     }
+
     return item.value;
   }
 
-  // حذف کردن آیتم
+  // حذف آیتم
   // Remove an item.
   removeItem(key: string): void {
     this.storageType.removeItem(key);
