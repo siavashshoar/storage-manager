@@ -30,7 +30,6 @@ class StorageManager {
     let item: any = { value: value };
 
     // تنظیم انقضا در صورت فعال بودن
-    // Set expiration if enabled.
     if (this.useExpiration && expirationInMs) {
       item.expiration = Date.now() + expirationInMs;
     }
@@ -38,7 +37,6 @@ class StorageManager {
     let dataToStore = JSON.stringify(item);
 
     // رمزنگاری در صورت فعال بودن
-    // Encrypt if enabled.
     if (this.useEncryption && this.encryptionKey) {
       dataToStore = CryptoJS.AES.encrypt(
         dataToStore,
@@ -46,6 +44,28 @@ class StorageManager {
       ).toString();
     }
 
+    // بررسی فضای ذخیره‌سازی قبل از ذخیره‌سازی
+    const totalStorage = 5 * 1024 * 1024; // فرض بر اینکه محدودیت کلی ۵ مگابایت است
+    let usedStorage = 0;
+
+    for (let i = 0; i < this.storageType.length; i++) {
+      const key = this.storageType.key(i);
+      if (key) {
+        usedStorage += (this.storageType.getItem(key)?.length || 0) * 2; // محاسبه طول هر آیتم به بایت
+      }
+    }
+
+    const remainingSpace = totalStorage - usedStorage;
+    const dataSize = new Blob([dataToStore]).size;
+
+    if (remainingSpace < dataSize) {
+      console.warn(
+        `Not enough storage space. Required: ${dataSize} bytes, Available: ${remainingSpace} bytes.`
+      );
+      return;
+    }
+
+    // ذخیره‌سازی آیتم در صورت کافی بودن فضا
     this.storageType.setItem(key, dataToStore);
   }
 
