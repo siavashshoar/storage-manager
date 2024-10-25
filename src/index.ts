@@ -24,19 +24,32 @@ class StorageManager {
     this.useExpiration = options.useExpiration ?? false; // پیش‌فرض: انقضا غیرفعال
   }
 
+  // بررسی پشتیبانی از Storage API
+  isStorageSupported(): boolean {
+    try {
+      const testKey = "__test__";
+      this.storageType.setItem(testKey, "test");
+      this.storageType.removeItem(testKey);
+      return true;
+    } catch (error) {
+      console.warn("Storage API is not supported by this browser.");
+      return false;
+    }
+  }
+
   // ذخیره آیتم با رمزنگاری و انقضا به صورت اختیاری
   // Store an item with optional encryption and expiration.
   setItem<T>(key: string, value: T, expirationInMs?: number): void {
+    if (!this.isStorageSupported()) return;
+
     let item: any = { value: value };
 
-    // تنظیم انقضا در صورت فعال بودن
     if (this.useExpiration && expirationInMs) {
       item.expiration = Date.now() + expirationInMs;
     }
 
     let dataToStore = JSON.stringify(item);
 
-    // رمزنگاری در صورت فعال بودن
     if (this.useEncryption && this.encryptionKey) {
       dataToStore = CryptoJS.AES.encrypt(
         dataToStore,
@@ -44,14 +57,13 @@ class StorageManager {
       ).toString();
     }
 
-    // بررسی فضای ذخیره‌سازی قبل از ذخیره‌سازی
-    const totalStorage = 5 * 1024 * 1024; // فرض بر اینکه محدودیت کلی ۵ مگابایت است
+    const totalStorage = 5 * 1024 * 1024;
     let usedStorage = 0;
 
     for (let i = 0; i < this.storageType.length; i++) {
       const key = this.storageType.key(i);
       if (key) {
-        usedStorage += (this.storageType.getItem(key)?.length || 0) * 2; // محاسبه طول هر آیتم به بایت
+        usedStorage += (this.storageType.getItem(key)?.length || 0) * 2;
       }
     }
 
@@ -65,8 +77,14 @@ class StorageManager {
       return;
     }
 
-    // ذخیره‌سازی آیتم در صورت کافی بودن فضا
-    this.storageType.setItem(key, dataToStore);
+    try {
+      this.storageType.setItem(key, dataToStore);
+    } catch (error) {
+      console.error("Error storing data: ", error as any);
+      if ((error as any).name === "QuotaExceededError") {
+        console.warn("Storage limit exceeded.");
+      }
+    }
   }
 
   // بازیابی آیتم و چک کردن انقضا یا رمزگشایی در صورت فعال بودن
